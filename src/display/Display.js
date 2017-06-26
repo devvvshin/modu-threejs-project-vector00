@@ -5,6 +5,7 @@ class Meteo extends THREE.Object3D{
     super();
     this.velocity = new THREE.Vector4(0.0, 0.0, 0.0, 1.0);
     this.readypos = new THREE.Vector4(0.0, 0.0, 0.0, 1.0);
+    this.response = new THREE.Vector4(0.0, 0.0, 0.0, 1.0);
   }
 
   ready(x, y){
@@ -19,16 +20,70 @@ class Meteo extends THREE.Object3D{
     this.scale.x = 0.04;
     this.scale.y = this.scale.x * window.innerWidth / window.innerHeight;
 
-    this.add(new THREE.Mesh(
+
+    this.geom = new THREE.BufferGeometry();
+    this.geom.addAttribute("position", new THREE.BufferAttribute(
+      new Float32Array([
+        -1.0, 0.0, 0.0,
+         1.0, 0.0, 0.0,
+         0.0, 1.0, 0.0
+      ]) , 3
+    ));
+    this.tail = new THREE.Object3D();
+    this.tail.add(new THREE.Mesh(
+      this.geom,
+      new THREE.MeshBasicMaterial({ color : "orange" })
+    ))
+    this.tail.position.z = 0.01;
+
+    this.head = new THREE.Object3D();
+    this.head.add(new THREE.Mesh(
       new THREE.PlaneGeometry(2.0, 2.0),
       new THREE.MeshBasicMaterial({ color : "red"})
     ));
+    this.head.position.z = 0.00;
+
+    this.add(this.tail);
+    this.add(this.head);
+  }
+
+  drag(x, y) {
+    const dx = (this.readypos.x - x);
+    const dy = (this.readypos.y - y) * window.innerHeight / window.innerWidth;
+    const ln = Math.sqrt(dx * dx + dy * dy);
+
+    this.tail.rotation.z = dy > 0 ? Math.PI - Math.atan(dx/dy) : -Math.atan(dx/dy);
+    this.tail.scale.y = Math.max(1.0, ln / this.scale.x);
+
   }
 
   start(x, y) {
     this.velocity.x = this.readypos.x - x;
     this.velocity.y = this.readypos.y - y;
     this.velocity.z = 0;
+
+    const limx = 1.0 + this.scale.x;
+    const limy = 1.0 + this.scale.y;
+
+    const sx = x;
+    const sy = y;
+    const ex = this.readypos.x;
+    const ey = this.readypos.y;
+
+    const miny = Math.max(Math.min(limy, (sy - ey) / (sx - ex) * (-limx - ex) + ey) , -limy);
+    const minx = (miny - ey) * (sx - ex) / (sy - ey) + ex;
+
+    const maxy = Math.max(Math.min(limy, (sy - ey) / (sx - ex) * ( limx - ex) + ey) , -limy);
+    const maxx = (maxy - ey) * (sx - ex) / (sy - ey) + ex;
+
+    if(this.velocity.x > 0) {
+      this.response.x = minx;
+      this.response.y = miny;
+    } else {
+      this.response.x = maxx;
+      this.response.y = maxy;
+    }
+
   }
 
   update(dt) {
@@ -36,8 +91,13 @@ class Meteo extends THREE.Object3D{
     this.position.y += this.velocity.y * dt;
     this.position.z += this.velocity.z * dt;
 
-    if(Math.abs(this.position.x) > 1.0 + this.scale.x) this.position.x = -Math.sign(this.position.x);
-    if(Math.abs(this.position.y) > 1.0 + this.scale.y) this.position.y = -Math.sign(this.position.y);
+    const limx = 1.0 + this.scale.x + this.tail.scale.y * this.scale.y;
+    const limy = 1.0 + this.scale.y + this.tail.scale.y * this.scale.y;
+
+    if(Math.abs(this.position.x) > limx || Math.abs(this.position.y) > limy) {
+      this.position.x = this.response.x;
+      this.position.y = this.response.y;
+    }
   }
 }
 
@@ -58,13 +118,18 @@ class Canvas {
       const y = 1.0 - (pageY / window.innerHeight) * 2.0;
       this.lastobj = new Meteo();
       this.scene.add(this.lastobj);
-
       this.lastobj.ready(x, y);
+    });
+    document.body.addEventListener("mousemove", ({pageX, pageY}) => {
+      const x = (pageX / window.innerWidth) * 2.0 - 1.0;
+      const y = 1.0 - (pageY / window.innerHeight) * 2.0;
+      if(this.lastobj) this.lastobj.drag(x, y);
     });
     document.body.addEventListener("mouseup", ({pageX, pageY}) => {
       const x = (pageX / window.innerWidth) * 2.0 - 1.0;
       const y = 1.0 - (pageY / window.innerHeight) * 2.0;
-      this.lastobj.start(x, y);
+      if(this.lastobj) this.lastobj.start(x, y);
+      this.lastobj = undefined;
     });
   }
 
@@ -75,7 +140,7 @@ class Canvas {
   }
 
   render(rdrr) {
-    rdrr.render(this.scene, this.camera, this.texture);
+    rdrr.render(this.scene, this.camera);
   }
 }
 
@@ -94,75 +159,16 @@ class Display {
     document.body.appendChild(this.renderer.domElement);
 
     this.canvas = new Canvas();
-    this.camera = new THREE.Camera();
-
-    this.oldtex = new THREE.WebGLRenderTarget(
-      window.innerWidth, window.innerHeight, {
-        minFilter : THREE.LinearFilter,
-        magFilter : THREE.LinearFilter,
-      }
-    );
-    this.newtex = new THREE.WebGLRenderTarget(
-      window.innerWidth, window.innerHeight, {
-        minFilter : THREE.LinearFilter,
-        magFilter : THREE.LinearFilter,
-      }
-    );
-
-    this.oldscn = new THREE.Scene();
-    this.oldscn.add(new THREE.Mesh(
-      new THREE.PlaneGeometry(2.0, 2.0),
-      new THREE.MeshBasicMaterial({map : this.newtex})
-    ));
-
-    this.uniforms = {
-      unif_oldtexture : { type : "t" ,value : this.canvas.texture },
-      unif_newtexture : { type : "t" ,value : this.oldtex},
-      unif_deltatime : { type : "f", value : 0.0}
-    } ;
-
-    this.newscn = new THREE.Scene();
-    this.newscn.add(new THREE.Mesh(
-      new THREE.PlaneGeometry(2.0, 2.0),
-      new THREE.ShaderMaterial({
-        uniforms : this.uniforms,
-        fragmentShader : `
-        uniform sampler2D unif_oldtexture;
-        uniform sampler2D unif_newtexture;
-        uniform float unif_deltatime;
-
-        varying vec2 vtex;
-        void main(void) {
-          vec4 oldcol = texture2D(unif_oldtexture, vtex);
-          vec4 newcol = texture2D(unif_newtexture, vtex);
-          oldcol.a -= unif_deltatime;
-
-          gl_FragColor = oldcol + newcol;
-        }
-        `,
-        vertexShader : `
-        varying vec2 vtex;
-        void main(void) {
-          vtex = uv;
-          gl_Position = vec4(position, 1.0);
-        }
-        `
-      })
-    ));
   }
 
   //public Function
   update() {
     var dt = this.getDeltaTime();
-    this.uniforms.unif_deltatime.value = dt;
     this.canvas.update(dt);
   }
 
   render() {
     this.canvas.render(this.renderer);
-    this.renderer.render(this.newscn, this.camera, this.newtex);
-    this.renderer.render(this.oldscn, this.camera, this.oldtex);
-    this.renderer.render(this.newscn, this.camera);
   }
 
 }
