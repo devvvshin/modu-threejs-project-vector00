@@ -1,4 +1,5 @@
 import THREE from "n3d-threejs"
+import PERLIN from "../n3d-perlin"
 
 class Meteo extends THREE.Object3D{
   constructor(camera) {
@@ -24,22 +25,24 @@ class Meteo extends THREE.Object3D{
     this.geom = new THREE.BufferGeometry();
     this.geom.addAttribute("position", new THREE.BufferAttribute(
       new Float32Array([
-        -1.0, 0.0, 0.0,
-         1.0, 0.0, 0.0,
+        -0.5, 0.0, 0.0,
+         0.5, 0.0, 0.0,
          0.0, 1.0, 0.0
       ]) , 3
     ));
     this.tail = new THREE.Object3D();
+    this.tail.mat = new THREE.MeshBasicMaterial({ transparent : true, opacity : 0.0, color : "orange" });
     this.tail.add(new THREE.Mesh(
       this.geom,
-      new THREE.MeshBasicMaterial({ color : "orange" })
+      this.tail.mat
     ))
     this.tail.position.z = 0.01;
 
     this.head = new THREE.Object3D();
+    this.head.mat = new THREE.MeshBasicMaterial({ transparent : true, opacity : 1.0, color : "red"});
     this.head.add(new THREE.Mesh(
       new THREE.PlaneGeometry(2.0, 2.0),
-      new THREE.MeshBasicMaterial({ color : "red"})
+      this.head.mat
     ));
     this.head.position.z = 0.00;
 
@@ -102,15 +105,61 @@ class Meteo extends THREE.Object3D{
 }
 
 class Canvas {
-  constructor() {
-    this.texture = new THREE.WebGLRenderTarget(
+  constructor(rdrr) {
+    this.rdrr = rdrr;
+
+    this.tailtexture = new THREE.WebGLRenderTarget(
       window.innerWidth, window.innerHeight, {
       minFilter : THREE.LinearFilter,
       magFilter : THREE.LinearFilter,
     });
+    this.headtexture = new THREE.WebGLRenderTarget(
+      window.innerWidth, window.innerHeight, {
+      minFilter : THREE.LinearFilter,
+      magFilter : THREE.LinearFilter,
+    });
+    this.perlinnoise = new PERLIN(rdrr);
 
     this.camera = new THREE.Camera();
     this.scene = new THREE.Scene();
+
+
+    this.retscn = new THREE.Scene();
+    this.retscn.add(new THREE.Mesh(
+      new THREE.PlaneGeometry(2.0, 2.0),
+      new THREE.ShaderMaterial({
+        uniforms : {
+          unif_headtexture : { type : "t", value : this.headtexture},
+          unif_tailtexture : { type : "t", value : this.tailtexture},
+          unif_perlinnoise : { type : "t", value : this.perlinnoise.texture}
+        },
+        fragmentShader : `
+        #define PI ` + Math.PI + `
+
+        uniform sampler2D unif_headtexture;
+        uniform sampler2D unif_tailtexture;
+        uniform sampler2D unif_perlinnoise;
+
+        varying vec2 vtex;
+
+        void main(void) {
+          float rad = texture2D(unif_perlinnoise, vtex).r - 0.5;
+          vec4 head = texture2D(unif_headtexture, vtex);
+          vec4 tail = texture2D(unif_tailtexture, vtex + 0.01 * vec2(sin(rad * PI * 4.0), cos(rad * PI * 4.0)));
+
+
+          gl_FragColor = mix(tail, head, head.a);
+        }
+        `,
+        vertexShader : `
+        varying vec2 vtex;
+        void main(void) {
+          vtex = uv;
+          gl_Position = vec4(position, 1.0);
+        }
+        `
+      })
+    ))
 
     //Regist Events
     document.body.addEventListener("mousedown", ({pageX, pageY}) => {
@@ -137,10 +186,24 @@ class Canvas {
     this.scene.children.forEach((obj) => {
       if(obj.update) obj.update(dt);
     })
+    this.perlinnoise.update(dt);
   }
 
-  render(rdrr) {
-    rdrr.render(this.scene, this.camera);
+  render() {
+
+    this.scene.children.forEach((obj) => {
+      obj.tail.mat.opacity = 1.0;
+      obj.head.mat.opacity = 0.0;
+    })
+    this.rdrr.render(this.scene, this.camera, this.tailtexture);
+
+    this.scene.children.forEach((obj) => {
+      obj.tail.mat.opacity = 0.0;
+      obj.head.mat.opacity = 1.0;
+    })
+    this.rdrr.render(this.scene, this.camera, this.headtexture);
+    this.rdrr.render(this.retscn, this.camera);
+
   }
 }
 
@@ -154,11 +217,11 @@ class Display {
   }
 
   constructor() {
-    this.renderer = new THREE.WebGLRenderer({alpha : true});
+    this.renderer = new THREE.WebGLRenderer({alpha : false});
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     document.body.appendChild(this.renderer.domElement);
 
-    this.canvas = new Canvas();
+    this.canvas = new Canvas(this.renderer);
   }
 
   //public Function
@@ -168,7 +231,7 @@ class Display {
   }
 
   render() {
-    this.canvas.render(this.renderer);
+    this.canvas.render();
   }
 
 }
