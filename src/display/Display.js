@@ -145,7 +145,7 @@ class Canvas {
         void main(void) {
           float rad = texture2D(unif_perlinnoise, vtex).r - 0.5;
           vec4 head = texture2D(unif_headtexture, vtex);
-          vec4 tail = texture2D(unif_tailtexture, vtex + 0.00 * vec2(sin(rad * PI * 4.0), cos(rad * PI * 4.0)));
+          vec4 tail = texture2D(unif_tailtexture, vtex + 0.02 * vec2(sin(rad * PI * 4.0), cos(rad * PI * 4.0)));
 
 
           gl_FragColor = mix(tail, head, head.a);
