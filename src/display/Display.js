@@ -70,6 +70,7 @@ class Meteo extends THREE.Object3D{
 
     const sx = x;
     const sy = y;
+
     const ex = this.readypos.x;
     const ey = this.readypos.y;
 
@@ -86,7 +87,6 @@ class Meteo extends THREE.Object3D{
       this.response.x = maxx;
       this.response.y = maxy;
     }
-
   }
 
   update(dt) {
